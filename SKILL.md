@@ -8,6 +8,30 @@ description: 保存记忆到本地 MemOS 记忆引擎并立即评分。当用户
 把一条值得长期保留的事实/结论写入本地记忆引擎（MemOS），**写入成功后立即评分**，
 让记忆在后续检索中排得上、立得住。
 
+## 生效前提（安装后必须配置，二者缺一不可）
+
+本 Skill **不是放进 skills 目录就能自动运转**，它依赖两个前提：
+
+### 前提 1：AGENTS.md 硬规则（触发保障）
+
+Skill 的触发依赖模型自觉，实践证明长对话/高负载下会漏触发。安装本 Skill 后，
+**必须**把下面这条硬规则添加进当前项目的 `AGENTS.md`，或当前 Agent Harness 的
+全局指令文件（如 `~/.zcode/AGENTS.md`、`~/.config/opencode/AGENTS.md`、`~/.qwen/QWEN.md`）：
+
+> **记忆保存纪律（硬性规则）**：任务收尾时自查：本次是否产出可复用结论
+> （问题解决步骤 / 踩坑解法 / 架构决策 / 关键配置变更）？命中即必须走
+> save-memory 流程（`memory_stats` 探活 → `memory_save` → 立即 `memory_score`），
+> 只写 Agent 本地会话记忆不算完成。
+
+没有这条规则，Skill 只是"能力"而非"义务"，会在最需要它的时候被遗忘。
+
+### 前提 2：agentmemhub MCP 服务（强绑定，执行保障）
+
+本 Skill 与 agentmemhub MCP 服务**强相关、强绑定**：写入、评分、检索全部经由
+其 MCP 工具完成，Skill 自身不含任何存储实现，**也没有降级路径**——
+MCP 未配置或不可见时，本 Skill 完全无法执行（此时应提醒用户配置，而不是改用
+其它方式保存）。MCP 服务信息见下表。
+
 ## 绑定的 MCP 服务
 
 本 Skill 不自带任何存储实现，所有读写经由 **agentmemhub MCP server** 完成：
