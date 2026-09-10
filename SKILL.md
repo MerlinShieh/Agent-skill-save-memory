@@ -1,11 +1,11 @@
 ---
 name: save-memory
-description: 保存记忆到本地 MemOS 记忆引擎并立即评分。当用户明确要求「记住/保存/记一下」，或任务产出重要结论/解决方案/踩坑解法，或发生重要配置变更时触发；写入成功后紧接着给该记忆打分。
+description: 保存记忆到本地记忆索引（AgentMemHub 内置引擎）并立即评分。当用户明确要求「记住/保存/记一下」，或任务产出重要结论/解决方案/踩坑解法，或发生重要配置变更时触发；写入成功后紧接着给该记忆打分。
 ---
 
 # 保存记忆（save-memory）
 
-把一条值得长期保留的事实/结论写入本地记忆引擎（MemOS），**写入成功后立即评分**，
+把一条值得长期保留的事实/结论写入本地记忆索引（AgentMemHub 内置 rag 引擎），**写入成功后立即评分**，
 让记忆在后续检索中排得上、立得住。
 
 ## 触发约束（最高优先）
@@ -50,7 +50,7 @@ MCP 未配置或不可见时，本 Skill 完全无法执行（此时应提醒用
 | 服务源码 / 安装 | https://github.com/MerlinShieh/AgentMemHub |
 | stdio 启动 | `python -m agentmemhub mcp` |
 | HTTP 常驻启动 | `python -m agentmemhub mcp --http --port 9100` |
-| 底层引擎 | MemOS Local Plugin（默认 `http://127.0.0.1:18800`） |
+| 底层引擎 | AgentMemHub 内置 `agentmemhub.rag`（进程内直调，无独立服务/端口/鉴权） |
 
 引擎与 MCP 的启停归用户管理，本 Skill 只读写、不启停。
 
@@ -62,12 +62,12 @@ MCP 未配置或不可见时，本 Skill 完全无法执行（此时应提醒用
 | 环节 | 实现位置 | 职责 |
 |---|---|---|
 | 何时保存/评分 | 本仓库 `SKILL.md` + AGENTS.md 硬规则 | 触发纪律（说明书，零代码） |
-| 引擎预检 | 本仓库 `scripts/check_engine.py` | 唯一脚本：探活 |
+| 引擎预检 | 本仓库 `scripts/check_engine.py` | 唯一脚本：探活（读 AgentMemHub 配置判断后端与就绪态） |
 | 写入/评分转发 | AgentMemHub 仓库 `agentmemhub/mcp_server.py`（`_save`/`_score`） | 把 MCP 工具调用翻译成引擎 API（feedback 极性分 + 已评清单 + r_task 同步） |
 | LLM 批量评估 | AgentMemHub 仓库 `agentmemhub/scoring.py`（CLI `agentmemhub score`） | 三轴（目标达成/过程质量/用户价值）评估出极性，用于批量补评 |
-| **量化计算** | **MemOS 引擎（上游 vendored，不改动）** | 收到 feedback 后立即重算 value / r_human / priority（连续分由引擎加权得出，API 只接受极性） |
+| **量化计算** | **agentmemhub/rag/**（内置引擎，`memstore.put_feedback`） | 收到 feedback 后立即重算 value / r_human / priority（写入侧做确定性聚合，打分策略在 AgentMemHub 侧） |
 
-解耦边界：**Skill 仓库=行为协议，AgentMemHub=适配层，MemOS=计算引擎**。
+解耦边界：**Skill 仓库=行为协议，AgentMemHub=适配层，agentmemhub.rag=计算引擎**。
 
 ## 调用前检查（必做，顺序执行）
 
@@ -78,8 +78,9 @@ MCP 未配置或不可见时，本 Skill 完全无法执行（此时应提醒用
    冲突时以 Harness 限制为准，跳过本流程并告知用户原因。
 2. **MCP 可用性**：本会话必须能看到上表所列的 agentmemhub 工具；
    缺失则提醒用户在当前 harness 中配置 agentmemhub MCP server 后停止，不硬写。
-3. **引擎探活**：调用 `memory_stats`；引擎离线时告知用户先启动
-   （AgentMemHub 项目内 `python -m agentmemhub memos-daemon start` 或看板）。
+3. **引擎探活**：调用 `memory_stats`；不可用时按返回的提示处理——
+   内置 rag 引擎无守护进程，"启动引擎"即"建立索引"：在 AgentMemHub 项目内跑
+   `python -m agentmemhub sync`（采集 + 向量化写入），之后即可读写。
    也可先在终端跑本仓库的预检脚本：`python scripts/check_engine.py`。
 
 ## 使用步骤
@@ -88,8 +89,8 @@ MCP 未配置或不可见时，本 Skill 完全无法执行（此时应提醒用
 
 调用 MCP 工具 `memory_save`，`content` 写一条**自包含**的结论：
 包含背景一句话 + 结论/做法，例如：
-「【运维】XX 项目嵌入模型为 bge-small-zh-v1.5；npm install 会清掉 node_modules 里的
-模型文件，重装后需重跑 scripts/download_embedding_model.py。」
+「【运维】XX 项目嵌入模型为 bge-small-zh-v1.5（随仓库分发）；换用更大模型时
+用 scripts/fetch_model.py 下载并在 agentmemhub.yaml 的 rag.models 注册。」
 
 `memory_save` 成功返回 `id=<trace_id>`；若返回「写入未生效/失败」，直接告知用户
 （无需评分，因为记忆没落库）。
