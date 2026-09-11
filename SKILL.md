@@ -1,18 +1,18 @@
----
+﻿---
 name: save-memory
-description: 保存记忆到本地记忆索引（AgentMemHub 内置引擎）并立即评分。当用户明确要求「记住/保存/记一下」，或任务产出重要结论/解决方案/踩坑解法，或发生重要配置变更时触发；写入成功后紧接着给该记忆打分。
+description: 保存记忆到本地记忆索引（AgentMemHub 内置引擎）。当用户明确要求「记住/保存/记一下」，或任务产出重要结论/解决方案/踩坑解法，或发生重要配置变更时触发；写入成功即完成——不自动评分，价值分由真实使用演化。
 ---
 
 # 保存记忆（save-memory）
 
-把一条值得长期保留的事实/结论写入本地记忆索引（AgentMemHub 内置 rag 引擎），**写入成功后立即评分**，
-让记忆在后续检索中排得上、立得住。
+把一条值得长期保留的事实/结论写入本地记忆索引（AgentMemHub 内置 rag 引擎）。**写入成功即完成**：
+价值分由来源初始分（主动写入 0.6）起步，随真实使用（被召回、被反馈）演化。
 
 ## 触发约束（最高优先）
 
 **用户主动提醒加入记忆时，必须立即触发本 Skill**——包括但不限于「记一下」「记住这个」
 「保存一下这个处理方式」「这个值得记」「以后遇到还按这个来」等任何明确或隐含的保存意图。
-此类请求不经任务收尾自查、不打折、不延后：当轮就走完 探活 → `memory_save` → `memory_score`。
+此类请求不经任务收尾自查、不打折、不延后：当轮就走完 探活 → `memory_save`。
 （任务产出可复用结论时的自动触发，见下方「生效前提」的 AGENTS.md 硬规则。）
 
 ## 生效前提（安装后必须配置，二者缺一不可）
@@ -27,7 +27,7 @@ Skill 的触发依赖模型自觉，实践证明长对话/高负载下会漏触�
 
 > **记忆保存纪律（硬性规则）**：任务收尾时自查：本次是否产出可复用结论
 > （问题解决步骤 / 踩坑解法 / 架构决策 / 关键配置变更）？命中即必须走
-> save-memory 流程（`memory_stats` 探活 → `memory_save` → 立即 `memory_score`），
+> save-memory 流程（`memory_stats` 探活 → `memory_save`），
 > 只写 Agent 本地会话记忆不算完成。
 
 没有这条规则，Skill 只是"能力"而非"义务"，会在最需要它的时候被遗忘。
@@ -61,10 +61,10 @@ MCP 未配置或不可见时，本 Skill 完全无法执行（此时应提醒用
 
 | 环节 | 实现位置 | 职责 |
 |---|---|---|
-| 何时保存/评分 | 本仓库 `SKILL.md` + AGENTS.md 硬规则 | 触发纪律（说明书，零代码） |
+| 何时保存 | 本仓库 `SKILL.md` + AGENTS.md 硬规则 | 触发纪律（说明书，零代码） |
 | 引擎预检 | 本仓库 `scripts/check_engine.py` | 唯一脚本：探活（读 AgentMemHub 配置判断后端与就绪态） |
 | 写入/评分转发 | AgentMemHub 仓库 `agentmemhub/mcp_server.py`（`_save`/`_score`） | 把 MCP 工具调用翻译成引擎 API（feedback 极性分 + 已评清单 + r_task 同步） |
-| LLM 批量评估 | AgentMemHub 仓库 `agentmemhub/scoring.py`（CLI `agentmemhub score`） | 三轴（目标达成/过程质量/用户价值）评估出极性，用于批量补评 |
+| LLM 批量评估 | AgentMemHub 仓库 `agentmemhub/scoring.py`（CLI `agentmemhub score`） | 三轴评估出极性（**入口已隐藏**，当前不生效） |
 | **量化计算** | **agentmemhub/rag/**（内置引擎，`memstore.put_feedback`） | 收到 feedback 后立即重算 value / r_human / priority（写入侧做确定性聚合，打分策略在 AgentMemHub 侧） |
 
 解耦边界：**Skill 仓库=行为协议，AgentMemHub=适配层，agentmemhub.rag=计算引擎**。
@@ -95,25 +95,22 @@ MCP 未配置或不可见时，本 Skill 完全无法执行（此时应提醒用
 `memory_save` 成功返回 `id=<trace_id>`；若返回「写入未生效/失败」，直接告知用户
 （无需评分，因为记忆没落库）。
 
-### 2. 写后即评（本 skill 的核心）
+### 2. 写入即完成（不自动评分，2026-09-11 起）
 
-对**刚写入的那一条**调用 MCP 工具 `memory_score`：
+`memory_save` 成功返回 `id=<trace_id>` 后**本 skill 流程结束**——**不要**紧接着调
+`memory_score` 打 positive：
 
-- `trace_id`：上一步返回的 id；
-- `polarity`：按你自己的判断取 `positive`（值得保留）/ `negative`（噪音，几乎不用）/
-  `neutral`（一般）。**大部分应给 positive**——能触发本 skill 的通常都有价值。
+- 价值分起点由来源决定（Agent 主动写入 0.6），之后由真实使用演化
+  （被召回、被面板 👍/👎 反馈）；
+- 写后自动打 positive 会让同一意图被计两次（0.6 → 顶格 1.0），全部记忆
+  挤在同一分值、丧失区分度（2026-09-11 实测定案，用户确认废除）；
+- 例外：用户明确说「这条很重要/以后优先用」时，才调 `memory_score` 打
+  positive，或建议用户在面板 ⭐ 加权（锁定不衰减）。
 
-引擎会立即重算该记忆的 value/priority（检索排序生效），无需额外等待。
+### 3. 批量评分（已下架，勿再推荐）
 
-### 3. 多条记忆的批量评分（可选）
-
-若一次任务保存了多条（短时间多次 memory_save），不想逐条评时，可改为在对话结束前
-用终端跑一次（仅评未评的，自动跳过已评；需本机装有 AgentMemHub）：
-
-```bash
-python -m agentmemhub score            # 只评未评分记忆
-python -m agentmemhub score --ids <id1>,<id2>   # 或只评指定条
-```
+`python -m agentmemhub score` 的入口已在控制台/面板隐藏、当前不生效
+（实测多为 neutral/全跳过）——不要再建议用户跑它。
 
 ## 检索怎么触发（不是本 skill 的职责）
 
