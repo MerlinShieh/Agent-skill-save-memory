@@ -1,4 +1,4 @@
-﻿---
+---
 name: save-memory
 description: 保存记忆到本地记忆索引（AgentMemHub 内置引擎）。当用户明确要求「记住/保存/记一下」，或任务产出重要结论/解决方案/踩坑解法，或发生重要配置变更时触发；写入成功即完成——不自动评分，价值分由真实使用演化。
 ---
@@ -53,6 +53,22 @@ MCP 未配置或不可见时，本 Skill 完全无法执行（此时应提醒用
 | 底层引擎 | AgentMemHub 内置 `agentmemhub.rag`（进程内直调，无独立服务/端口/鉴权） |
 
 引擎与 MCP 的启停归用户管理，本 Skill 只读写、不启停。
+
+### 在 harness 里这些工具叫什么（排查「工具不可见」的关键）
+
+上表列的是 MCP server 的**原始工具名**。多数 harness 会把它们**命名空间化**后再
+暴露给模型，常见形式是 `mcp__<serverName>__<原名>`：
+
+| 原始名 | harness 中常见的公开名 |
+|---|---|
+| `memory_stats` | `mcp__agentmemhub__memory_stats` |
+| `memory_save` | `mcp__agentmemhub__memory_save` |
+| `memory_search` | `mcp__agentmemhub__memory_search` |
+
+**排查「看不到工具」时必须按前缀找**：只搜 `memory_save` 会得出「MCP 没配上」的
+错误结论，而工具其实早已挂好——实测踩过这个坑：误判十余轮去查配置/解析/日志，
+最后发现只是名字带了 `mcp__<serverName>__` 前缀。正确做法是先列出本会话可用
+工具、按 `agentmemhub` 或 `mcp__` 过滤，再判断是否真的缺失。
 
 ## 处理逻辑归属（本 Skill 为什么这么"薄"）
 

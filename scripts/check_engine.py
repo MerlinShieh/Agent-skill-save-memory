@@ -6,7 +6,8 @@
 
 用法：
     python scripts/check_engine.py [项目根]
-    项目根默认 D:\\data\\vibeCoding\\Agent_Memory\\AgentMemHub
+    项目根默认取 AGENTMEMHUB_HOME 环境变量；未设置时从当前目录向上查找
+    含 agentmemhub.yaml 的目录（即在 AgentMemHub 项目内直接运行即可）。
 
 退出码：0=就绪；2=未就绪（附修复指引）。
 """
@@ -15,7 +16,21 @@ import sqlite3
 import sys
 from pathlib import Path
 
-DEFAULT_ROOT = Path(r"D:\data\vibeCoding\Agent_Memory\AgentMemHub")
+
+def default_root() -> Path:
+    """解析 AgentMemHub 项目根（刻意不硬编码任何个人路径）。
+
+    顺序：``AGENTMEMHUB_HOME`` 环境变量 → 当前目录及其各层祖先中带
+    ``agentmemhub.yaml`` 的那个 → 当前目录（此时应由调用方显式传参）。
+    """
+    env = os.environ.get("AGENTMEMHUB_HOME")
+    if env:
+        return Path(env)
+    here = Path.cwd().resolve()
+    for candidate in (here, *here.parents):
+        if (candidate / "agentmemhub.yaml").is_file():
+            return candidate
+    return here
 
 
 def _backend(root: Path) -> str:
@@ -32,7 +47,7 @@ def _backend(root: Path) -> str:
 
 
 def main() -> int:
-    root = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_ROOT
+    root = Path(sys.argv[1]) if len(sys.argv) > 1 else default_root()
     if not root.exists():
         print(f"[X] 未找到 AgentMemHub 项目根：{root}")
         print("    传入正确路径：python scripts/check_engine.py <项目根>")
